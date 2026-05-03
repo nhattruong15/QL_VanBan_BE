@@ -52,14 +52,17 @@ export const verifyDocument = (content, signature, publicKeyPem) => {
 };
 
 /**
- * Tạo nội dung chuẩn để ký từ các trường của văn bản
- * (Phải nhất quán giữa lúc ký và lúc xác minh)
+ * Tạo nội dung chuẩn để ký từ các trường BẤT BIẾN của văn bản.
+ * QUAN TRỌNG: Chỉ dùng các trường KHÔNG BAO GIỜ thay đổi sau khi tạo.
+ * - KHÔNG dùng: status, documentNumber (có thể được gán sau), history, isVerified
+ * - CÓ dùng: _id (unique, immutable), createdAt, title, content
  * @param {object} doc - Document object
  * @returns {string}
  */
 export const buildSignableContent = (doc) => {
   return [
-    doc.documentNumber || '',
+    doc._id?.toString() || '',
+    doc.createdAt?.toISOString() || '',
     doc.title || '',
     doc.content || '',
   ].join('|');
