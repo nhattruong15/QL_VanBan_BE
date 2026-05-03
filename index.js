@@ -7,6 +7,7 @@ import documentRoutes from './src/routes/documentRoutes.js';
 import departmentRoutes from './src/routes/departmentRoutes.js';
 import organizationRoutes from './src/routes/organizationRoutes.js';
 import signatureRoutes from './src/routes/signatureRoutes.js';
+import notificationRoutes from './src/routes/notificationRoutes.js';
 
 import path from 'path';
 
@@ -30,6 +31,7 @@ app.use('/api/documents', documentRoutes);
 app.use('/api/departments', departmentRoutes);
 app.use('/api/organizations', organizationRoutes);
 app.use('/api/signatures', signatureRoutes);
+app.use('/api/notifications', notificationRoutes);
 
 app.get('/', (req, res) => {
   res.send('API đang kết nối với mongoDB...');

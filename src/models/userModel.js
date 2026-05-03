@@ -19,8 +19,14 @@ const userSchema = mongoose.Schema(
     role: {
       type: String,
       required: true,
-      enum: ['SUPER_ADMIN', 'ADMIN', 'DISPATCHER', 'EMPLOYEE', 'LEADER'],
+      enum: ['SUPER_ADMIN', 'LEADER', 'DISPATCHER', 'EMPLOYEE'],
+
       default: 'EMPLOYEE',
+    },
+    leaderLevel: {
+      type: String,
+      enum: ['DEPARTMENT', 'ORGANIZATION', null],
+      default: null,
     },
     organization: {
       type: mongoose.Schema.Types.ObjectId,

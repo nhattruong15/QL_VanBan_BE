@@ -39,11 +39,12 @@ const documentSchema = mongoose.Schema(
     receiver: {
       organization: { type: mongoose.Schema.Types.ObjectId, ref: 'Organization', required: true },
       department: { type: mongoose.Schema.Types.ObjectId, ref: 'Department' },
-      // For LEADER_SUBMIT type: the intended leader recipient after dispatcher routing
       targetLeader: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-      // For INTERNAL/OFFICIAL: a specific employee target (optional, null = whole dept)
       targetEmployee: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     },
+    issuingOrganizations: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Organization' }],
+    // người ký văn bản (lãnh đạo trong công ty)
+    signer: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     // Chữ ký số RSA
     signature: { type: String, default: null },         // Chữ ký RSA dạng base64
     signerPublicKey: { type: String, default: null },   // Public key của tổ chức đã ký

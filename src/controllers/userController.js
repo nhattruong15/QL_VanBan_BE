@@ -16,6 +16,7 @@ const authUser = async (req, res) => {
       name: user.name,
       username: user.username,
       role: user.role,
+      leaderLevel: user.leaderLevel,
       organization: user.organization,
       department: user.department,
       token: generateToken(user._id),
@@ -39,6 +40,7 @@ const getUserProfile = async (req, res) => {
       name: user.name,
       username: user.username,
       role: user.role,
+      leaderLevel: user.leaderLevel,
       organization: user.organization,
       department: user.department,
     });
@@ -53,7 +55,7 @@ const getUserProfile = async (req, res) => {
 const getUsers = async (req, res) => {
   let query = {};
   
-  if (req.user.role === 'ADMIN') {
+  if (req.user.role === 'LEADER' && req.user.leaderLevel === 'ORGANIZATION') {
     query = { organization: req.user.organization };
   } else if (req.user.role !== 'SUPER_ADMIN') {
     res.status(403);
@@ -69,7 +71,7 @@ const getUsers = async (req, res) => {
 //  (tạo người dùng mới)
 // @route   POST /api/users
 const createUser = async (req, res) => {
-  const { name, username, password, role, organization, department } = req.body;
+  const { name, username, password, role, leaderLevel, organization, department } = req.body;
 
   const userExists = await User.findOne({ username });
 
@@ -79,13 +81,14 @@ const createUser = async (req, res) => {
   }
 
   // Nếu vai trò là ADMIN, buộc cơ quan phải là của họ 
-  const userOrg = req.user.role === 'ADMIN' ? req.user.organization : organization;
+  const userOrg = (req.user.role === 'LEADER' && req.user.leaderLevel === 'ORGANIZATION') ? req.user.organization : organization;
 
   const user = await User.create({
     name,
     username,
     password,
     role,
+    leaderLevel: leaderLevel || null,
     organization: userOrg,
     department,
   });
@@ -109,8 +112,8 @@ const updateUser = async (req, res) => {
   const user = await User.findById(req.params.id);
 
   if (user) {
-    // Permission check for ADMIN
-    if (req.user.role === 'ADMIN' && user.organization.toString() !== req.user.organization.toString()) {
+    // Permission check for LEADER (ORGANIZATION level)
+    if (req.user.role === 'LEADER' && req.user.leaderLevel === 'ORGANIZATION' && user.organization.toString() !== req.user.organization.toString()) {
       res.status(403);
       throw new Error('Bạn không có quyền sửa người dùng của cơ quan khác');
     }
@@ -118,6 +121,7 @@ const updateUser = async (req, res) => {
     user.name = req.body.name || user.name;
     user.username = req.body.username || user.username;
     user.role = req.body.role || user.role;
+    user.leaderLevel = req.body.leaderLevel !== undefined ? req.body.leaderLevel : user.leaderLevel;
     user.department = req.body.department || user.department;
     
     if (req.user.role === 'SUPER_ADMIN') {
@@ -148,7 +152,8 @@ const deleteUser = async (req, res) => {
   const user = await User.findById(req.params.id);
 
   if (user) {
-    if (req.user.role === 'ADMIN' && user.organization.toString() !== req.user.organization.toString()) {
+    if (req.user.role === 'LEADER' && req.user.leaderLevel === 'ORGANIZATION' && user.organization.toString() !== req.user.organization.toString()) {
+
       res.status(403);
       throw new Error('Bạn không có quyền xóa người dùng của cơ quan khác');
     }
@@ -172,12 +177,15 @@ const getLeadersByOrg = async (req, res) => {
   const { orgId } = req.params;
   const { role } = req.query;
 
-  const query = { organization: orgId, isActive: true };
-  
-  if (role) {
-    query.role = role;
+  // Use leaderLevel filter if provided
+  const query = { organization: orgId, role: 'LEADER', isActive: true };
+  const { leaderLevel } = req.query;
+  if (leaderLevel === 'ALL') {
+    // do not add leaderLevel to query, fetch both ORGANIZATION and DEPARTMENT leaders
+  } else if (leaderLevel) {
+    query.leaderLevel = leaderLevel;
   } else {
-    query.role = 'LEADER';
+    query.leaderLevel = 'DEPARTMENT';
   }
 
   const leaders = await User.find(query)
@@ -191,9 +199,34 @@ const getLeadersByOrg = async (req, res) => {
 const getEmployeesByDept = async (req, res) => {
   const { deptId } = req.params;
   const users = await User.find({ department: deptId })
-    .select('name _id role')
+    .select('name _id role leaderLevel')
+
     .sort({ name: 1 });
   res.json(users);
 };
 
-export { authUser, getUserProfile, getUsers, createUser, updateUser, deleteUser, getLeadersByOrg, getEmployeesByDept };
+// (thay đổi mật khẩu cá nhân)
+// @route   PUT /api/users/profile/password
+const changePassword = async (req, res) => {
+  const user = await User.findById(req.user._id);
+
+  if (user) {
+    const { currentPassword, newPassword } = req.body;
+    
+    // Check old password
+    if (!(await user.matchPassword(currentPassword))) {
+      res.status(400);
+      throw new Error('Mật khẩu hiện tại không đúng');
+    }
+
+    user.password = newPassword;
+    await user.save();
+
+    res.json({ message: 'Đổi mật khẩu thành công' });
+  } else {
+    res.status(404);
+    throw new Error('Không tìm thấy người dùng');
+  }
+};
+
+export { authUser, getUserProfile, getUsers, createUser, updateUser, deleteUser, getLeadersByOrg, getEmployeesByDept, changePassword };

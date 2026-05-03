@@ -3,7 +3,8 @@ const router = express.Router();
 import { getDepartmentsByOrg, createDepartment, updateDepartment, deleteDepartment } from '../controllers/departmentController.js';
 import { protect, authorize } from '../middleware/authMiddleware.js';
 
-router.route('/').post(protect, authorize('SUPER_ADMIN', 'ADMIN'), createDepartment);
+router.route('/').post(protect, authorize('SUPER_ADMIN', 'LEADER'), createDepartment);
+
 router.route('/org/:orgId').get(protect, getDepartmentsByOrg);
 router.route('/:id')
   .put(protect, authorize('SUPER_ADMIN'), updateDepartment)
