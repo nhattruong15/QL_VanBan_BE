@@ -23,8 +23,6 @@ const storage = multer.diskStorage({
 function checkFileType(file, cb) {
   const filetypes = /jpg|jpeg|png|pdf|doc|docx|xls|xlsx/;
   const extname = filetypes.test(path.extname(file.originalname).toLowerCase());
-  // Instead of strict mimetype matching which fails for MS Office formats, 
-  // we check if it is either a known image/pdf mimetype OR a valid office extension.
   if (extname) {
     return cb(null, true);
   } else {

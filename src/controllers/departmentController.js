@@ -60,7 +60,6 @@ const updateDepartment = asyncHandler(async (req, res) => {
   const department = await Department.findById(req.params.id);
 
   if (department) {
-    // Chỉ SUPER_ADMIN mới được sửa mọi cơ quan. ADMIN chỉ được sửa cơ quan của mình.
     if (req.user.role !== 'SUPER_ADMIN' && department.organization.toString() !== req.user.organization.toString()) {
       res.status(403);
       throw new Error('Bạn không có quyền chỉnh sửa phòng ban của cơ quan khác');
@@ -90,7 +89,6 @@ const deleteDepartment = asyncHandler(async (req, res) => {
   const department = await Department.findById(req.params.id);
 
   if (department) {
-    // Chỉ SUPER_ADMIN mới được xóa ở mọi cơ quan. ADMIN chỉ được xóa ở cơ quan của mình.
     if (req.user.role !== 'SUPER_ADMIN' && department.organization.toString() !== req.user.organization.toString()) {
       res.status(403);
       throw new Error('Bạn không có quyền xóa phòng ban của cơ quan khác');

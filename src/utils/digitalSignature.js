@@ -53,16 +53,14 @@ export const verifyDocument = (content, signature, publicKeyPem) => {
 
 /**
  * Tạo nội dung chuẩn để ký từ các trường BẤT BIẾN của văn bản.
- * QUAN TRỌNG: Chỉ dùng các trường KHÔNG BAO GIỜ thay đổi sau khi tạo.
- * - KHÔNG dùng: status, documentNumber (có thể được gán sau), history, isVerified
- * - CÓ dùng: _id (unique, immutable), createdAt, title, content
+ * QUAN TRỌNG: Chỉ dùng các trường KHÔNG BAO GIỜ thay đổi khi văn bản bị clone.
+ * Khi dự thảo được Ban hành (Publish), hệ thống tạo ra bản sao mới (khác _id, khác createdAt).
+ * Do đó CHỈ được dùng nội dung lõi: title, content.
  * @param {object} doc - Document object
  * @returns {string}
  */
 export const buildSignableContent = (doc) => {
   return [
-    doc._id?.toString() || '',
-    doc.createdAt?.toISOString() || '',
     doc.title || '',
     doc.content || '',
   ].join('|');

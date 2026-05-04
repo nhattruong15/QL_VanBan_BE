@@ -1,7 +1,6 @@
 import asyncHandler from 'express-async-handler';
 import Notification from '../models/notificationModel.js';
 
-// @desc    Get user notifications
 // @route   GET /api/notifications
 // @access  Private
 const getNotifications = asyncHandler(async (req, res) => {
@@ -12,7 +11,6 @@ const getNotifications = asyncHandler(async (req, res) => {
   res.json(notifications);
 });
 
-// @desc    Mark notification as read
 // @route   PUT /api/notifications/:id/read
 // @access  Private
 const markAsRead = asyncHandler(async (req, res) => {
@@ -32,7 +30,6 @@ const markAsRead = asyncHandler(async (req, res) => {
   }
 });
 
-// @desc    Mark all notifications as read
 // @route   PUT /api/notifications/read-all
 // @access  Private
 const markAllAsRead = asyncHandler(async (req, res) => {

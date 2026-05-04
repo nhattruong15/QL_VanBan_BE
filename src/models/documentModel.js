@@ -12,6 +12,10 @@ const documentSchema = mongoose.Schema(
     documentNumber: {
       type: String,
     },
+    category: {
+      type: String,
+      default: 'Công văn' // Loại văn bản hiển thị trên giao diện kinh doanh
+    },
     type: {
       type: String,
       enum: ['OFFICIAL', 'INTERNAL', 'EXPRESS', 'LEADER_SUBMIT', 'DRAFT_PUBLISH'],

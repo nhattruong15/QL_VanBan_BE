@@ -2,6 +2,7 @@ import asyncHandler from 'express-async-handler';
 import Document from '../models/documentModel.js';
 import Notification from '../models/notificationModel.js';
 import User from '../models/userModel.js';
+import Department from '../models/departmentModel.js';
 
 // (tạo văn bản mới)
 // @route   POST /api/documents
@@ -14,7 +15,7 @@ const createDocument = asyncHandler(async (req, res) => {
     throw new Error('Yêu cầu không hợp lệ: body trống hoặc không thể phân giải');
   }
 
-  const { title, content, type, receiverOrgId, receiverDeptId, targetLeaderId, targetEmployeeId, status, issuingOrganizations, signerId } = req.body;
+  const { title, content, type, category, receiverOrgId, receiverDeptId, targetLeaderId, targetEmployeeId, status, issuingOrganizations, signerId } = req.body;
 
   
   const attachments = req.files ? req.files.map(file => ({
@@ -39,6 +40,7 @@ const createDocument = asyncHandler(async (req, res) => {
     title,
     content,
     type,
+    category: category || 'Công văn',
     sender: {
       user: req.user._id,
       organization: req.user.organization,
@@ -122,8 +124,8 @@ const getDocuments = asyncHandler(async (req, res) => {
     // Văn bản đi = TẤT CẢ văn bản do người gửi tạo ra (kể cả nội bộ)
     // Người gửi luôn thấy những gì họ đã gửi
     query = { 'sender.organization': req.user.organization };
-    if (req.user.role === 'EMPLOYEE' && req.user.department) {
-      query['sender.department'] = req.user.department;
+    if (req.user.role === 'EMPLOYEE') {
+      query['sender.user'] = req.user._id;
     } else if (req.user.role === 'LEADER') {
       query['sender.user'] = req.user._id;
     } else if (req.user.role === 'DISPATCHER' || req.user.role === 'ADMIN') {
@@ -149,12 +151,8 @@ const getDocuments = asyncHandler(async (req, res) => {
         'sender.user': { $ne: req.user._id },
         status: { $in: ['FORWARDED', 'PROCESSED'] },
         $or: [
-          // Gửi cho cả phòng ban (không có targetEmployee)
-          {
-            'receiver.department': req.user.department,
-            'receiver.targetEmployee': { $in: [null, undefined] },
-            $nor: [{ 'receiver.targetEmployee': { $exists: true, $ne: null } }]
-          },
+          { 'receiver.department': req.user.department, 'receiver.targetEmployee': null },
+          { 'receiver.department': req.user.department, 'receiver.targetEmployee': { $exists: false } },
           { 'receiver.targetEmployee': req.user._id }
         ]
       };
@@ -182,8 +180,16 @@ const getDocuments = asyncHandler(async (req, res) => {
       query = { 
         'receiver.organization': req.user.organization,
         'sender.user': { $ne: req.user._id },
-        type: { $ne: 'DRAFT_PUBLISH' },
-        status: { $in: ['FORWARDED', 'RECEIVED', 'REJECTED', 'PROCESSED'] }
+        status: { $in: ['FORWARDED', 'RECEIVED', 'REJECTED', 'PROCESSED'] },
+        $or: [
+          // Xem văn bản từ công ty khác đến
+          { 'sender.organization': { $ne: req.user.organization } },
+          // Xem văn bản được phân công đích danh cho lãnh đạo này
+          { 'receiver.targetLeader': req.user._id },
+          // Xem văn bản mà chưa phân định rõ phòng ban (tránh thấy các bản sao lưu chuyển nội bộ của phòng ban)
+          { 'receiver.department': { $exists: false } },
+          { 'receiver.department': null }
+        ]
       };
     } else {
       query = { 
@@ -232,7 +238,7 @@ const getDocuments = asyncHandler(async (req, res) => {
 //  (cập nhật trạng thái văn bản)
 // @route   PUT /api/documents/:id/status
 const updateDocumentStatus = asyncHandler(async (req, res) => {
-  let { status, note, receiverDeptId, targetEmployeeId, delegatedByLeader } = req.body;
+  let { status, note, receiverDeptId, targetEmployeeId, delegatedByLeader, internalDeptIds } = req.body;
   const document = await Document.findById(req.params.id);
 
   if (document) {
@@ -272,65 +278,140 @@ const updateDocumentStatus = asyncHandler(async (req, res) => {
       ? 'DELEGATED_TO_DEPT'
       : `STATUS_CHANGED_TO_${status}`;
 
+    let historyNote = note || '';
+    if (!historyNote && status === 'PROCESSED' && document.type === 'DRAFT_PUBLISH') {
+      historyNote = 'Văn bản đã được ban hành';
+    }
+
     document.history.push({
       user: req.user._id,
       action,
-      note: note || '',
+      note: historyNote,
     });
 
     const updatedDocument = await document.save();
 
     // -- BAN HÀNH DỰ THẢO VĂN BẢN (DRAFT_PUBLISH) --
     if (document.type === 'DRAFT_PUBLISH' && originalStatus === 'PENDING_PUBLISH' && status === 'PROCESSED') {
-      const issuingOrgs = document.issuingOrganizations || [];
+      let issuingOrgs = document.issuingOrganizations || [];
+      
+      // Đảm bảo tổ chức hiện tại có trong danh sách nếu có chọn phòng ban nội bộ
+      const myOrgIdStr = req.user.organization.toString();
+      const hasInternal = issuingOrgs.some(id => id.toString() === myOrgIdStr);
+      if (internalDeptIds && !hasInternal) {
+        issuingOrgs.push(req.user.organization);
+      }
+
       if (issuingOrgs.length > 0) {
         const clonedDocs = [];
         for (const orgId of issuingOrgs) {
-          const isInternalCopy = orgId.toString() === document.sender.organization.toString();
-          const targetStatus = isInternalCopy ? 'FORWARDED' : 'SENT'; // Nội bộ thì trực tiếp FORWARDED, ngoài thì SENT (chờ văn thư)
-          
-          clonedDocs.push({
+          const senderOrgId = document.sender.organization._id || document.sender.organization;
+          const isInternalCopy = orgId.toString() === senderOrgId.toString();
+
+          if (isInternalCopy) {
+            // --- BAN HÀNH NỘI BỘ: Tạo bản sao cho từng phòng ban ---
+            let targetDepts = [];
+
+            if (internalDeptIds && internalDeptIds !== 'ALL' && internalDeptIds.length > 0) {
+              // Văn thư chọn cụ thể các phòng ban
+              targetDepts = Array.isArray(internalDeptIds) ? internalDeptIds : [internalDeptIds];
+            } else {
+              // Văn thư chọn "Toàn bộ" - lấy hết phòng ban trong tổ chức
+              const allDepts = await Department.find({ organization: orgId });
+              targetDepts = allDepts.map(d => d._id.toString());
+            }
+
+            for (const deptId of targetDepts) {
+              clonedDocs.push({
+                title: document.title,
+                content: document.content,
+                type: document.type,
+                category: document.category,
+                documentNumber: document.documentNumber,
+                sender: {
+                  user: req.user._id,
+                  organization: req.user.organization,
+                  department: req.user.department,
+                },
+                receiver: {
+                  organization: orgId,
+                  department: deptId,
+                },
+                status: 'FORWARDED',
+                attachments: document.attachments,
+                signature: document.signature,
+                signerPublicKey: document.signerPublicKey,
+                signer: document.signer,
+                isSigned: document.isSigned,
+                history: [{
+                user: req.user._id,
+                action: 'CREATED',
+                note: `Văn bản được ban hành nội bộ từ dự thảo gốc "${document.title}"`,
+                timestamp: new Date()
+              }, {
+                user: req.user._id,
+                action: 'DOCUMENT_PUBLISHED',
+                note: `Văn thư ban hành đến phòng ban nội bộ`,
+                timestamp: new Date()
+              }]
+              });
+            }
+          } else {
+            // --- BAN HÀNH RA NGOÀI: Gửi đến công ty khác để Văn thư xét duyệt ---
+            clonedDocs.push({
             title: document.title,
             content: document.content,
             type: document.type,
+            category: document.category,
             documentNumber: document.documentNumber, 
             sender: {
-              user: document.sender.user,
-              organization: document.sender.organization,
-              department: document.sender.department,
+              user: req.user._id, // Văn thư là người ban hành/gửi đi
+              organization: req.user.organization,
+              department: req.user.department,
             },
             receiver: {
               organization: orgId,
             },
-            status: targetStatus,
+            status: 'SENT', // Gửi đến văn thư công ty ngoài để xét duyệt
             attachments: document.attachments,
             signature: document.signature,
             signerPublicKey: document.signerPublicKey,
             signer: document.signer,
             isSigned: document.isSigned,
-            history: [{
-              user: req.user._id,
-              action: 'CREATED',
-              note: `Văn bản được ban hành từ dự thảo gốc "${document.title}"`,
-              timestamp: new Date()
-            }, {
-              user: req.user._id,
-              action: `STATUS_CHANGED_TO_${targetStatus}`,
-              note: `Văn thư phát hành đến cơ quan tiếp nhận`,
-              timestamp: new Date()
-            }]
-          });
+              history: [{
+                user: req.user._id,
+                action: 'CREATED',
+                note: `Văn bản được ban hành từ dự thảo gốc "${document.title}"`,
+                timestamp: new Date()
+              }, {
+                user: req.user._id,
+                action: `STATUS_CHANGED_TO_SENT`,
+                note: `Văn thư phát hành đến cơ quan tiếp nhận`,
+                timestamp: new Date()
+              }]
+            });
+          }
         }
         
         // Insert copied documents
         const insertedDocs = await Document.insertMany(clonedDocs);
 
-        // Notify dispatchers of target organizations
+        // Notify recipients of target organizations/departments
         for (const newDoc of insertedDocs) {
-          const dispatchers = await User.find({ organization: newDoc.receiver.organization, role: 'DISPATCHER' });
-          if (dispatchers.length > 0) {
-            await Notification.insertMany(dispatchers.map(d => ({
-              recipient: d._id,
+          let cloneRecipients = [];
+          if (newDoc.status === 'FORWARDED' && newDoc.receiver.department) {
+            // Ban hành nội bộ -> Thông báo cho toàn bộ người trong phòng ban nhận
+            const deptUsers = await User.find({ department: newDoc.receiver.department });
+            cloneRecipients = deptUsers.map(u => u._id);
+          } else if (newDoc.status === 'SENT') {
+            // Ban hành ra ngoài -> Thông báo cho văn thư bên nhận
+            const dispatchers = await User.find({ organization: newDoc.receiver.organization, role: 'DISPATCHER' });
+            cloneRecipients = dispatchers.map(u => u._id);
+          }
+
+          if (cloneRecipients.length > 0) {
+            await Notification.insertMany(cloneRecipients.map(recipientId => ({
+              recipient: recipientId,
               document: newDoc._id,
               message: `Có văn bản ban hành mới: "${newDoc.title}"`,
               type: 'NEW_DOCUMENT'
@@ -402,6 +483,36 @@ const getDocumentById = asyncHandler(async (req, res) => {
   }
 });
 
+// @desc    Delete a document (Recall unread document)
+// @route   DELETE /api/documents/:id
+const deleteDocument = asyncHandler(async (req, res) => {
+  const document = await Document.findById(req.params.id);
+
+  if (!document) {
+    res.status(404);
+    throw new Error('Document not found');
+  }
+
+  // Check if the user is the sender
+  if (document.sender.user.toString() !== req.user._id.toString()) {
+    res.status(403);
+    throw new Error('Bạn không có quyền xóa văn bản này vì bạn không phải người gửi');
+  }
+
+  // Only allow recall if the status is still unread/unprocessed by receiver
+  if (document.status !== 'FORWARDED' && document.status !== 'SENT' && document.status !== 'DRAFT') {
+    res.status(400);
+    throw new Error('Không thể thu hồi văn bản vì người nhận đã xử lý hoặc tiếp nhận.');
+  }
+
+  await document.deleteOne();
+  
+  // Also delete associated notifications
+  await Notification.deleteMany({ document: req.params.id });
+
+  res.json({ message: 'Đã xóa văn bản thành công' });
+});
+
 // @desc    Get organization statistics for dashboard
 // @route   GET /api/documents/stats/organization
 const getOrgStats = asyncHandler(async (req, res) => {
@@ -425,8 +536,17 @@ const getOrgStats = asyncHandler(async (req, res) => {
     }
     baseInQuery.$or = leaderConditions;
   } else if (role === 'LEADER' && leaderLevel === 'ORGANIZATION') {
-    // Lãnh đạo tổ chức thấy toàn bộ
-    baseInQuery['type'] = { $ne: 'DRAFT_PUBLISH' };
+    // Lãnh đạo tổ chức thấy toàn bộ (bao gồm cả dự thảo)
+  } else if (role === 'EMPLOYEE') {
+    if (depId) {
+      baseInQuery.$or = [
+        { 'receiver.department': depId, 'receiver.targetEmployee': null },
+        { 'receiver.department': depId, 'receiver.targetEmployee': { $exists: false } },
+        { 'receiver.targetEmployee': userId }
+      ];
+    } else {
+      baseInQuery['receiver.targetEmployee'] = userId;
+    }
   }
 
   // Điều kiện STATUS của Incoming giống y hệt getDocuments
@@ -464,4 +584,11 @@ const getOrgStats = asyncHandler(async (req, res) => {
 });
 
 
-export { createDocument, getDocuments, updateDocumentStatus, getDocumentById, getOrgStats };
+export { 
+  createDocument,
+  getDocuments,
+  updateDocumentStatus,
+  getDocumentById,
+  getOrgStats,
+  deleteDocument,
+};
