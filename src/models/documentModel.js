@@ -54,6 +54,7 @@ const documentSchema = mongoose.Schema(
     signerPublicKey: { type: String, default: null },   // Public key của tổ chức đã ký
     isSigned: { type: Boolean, default: false },        // Đã được ký chưa
     isVerified: { type: Boolean, default: false },      // Đã được xác minh chưa
+    isPublishedCopy: { type: Boolean, default: false },  // Bản sao được tạo khi ban hành DRAFT_PUBLISH
 
     history: [
       {
@@ -62,6 +63,15 @@ const documentSchema = mongoose.Schema(
         note: String,
         timestamp: { type: Date, default: Date.now },
       },
+    ],
+    
+    feedbacks: [
+      {
+        user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+        summary: String,
+        content: String,
+        createdAt: { type: Date, default: Date.now },
+      }
     ],
   },
   {
