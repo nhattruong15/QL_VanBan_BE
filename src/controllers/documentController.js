@@ -182,7 +182,10 @@ const getDocuments = asyncHandler(async (req, res) => {
       query = { 
         'receiver.organization': req.user.organization,
         'sender.user': { $ne: req.user._id },
-        isPublishedCopy: { $ne: true },
+        $or: [
+          { isPublishedCopy: { $ne: true } },
+          { 'sender.organization': { $ne: req.user.organization } }
+        ],
         status: { $in: ['SENT', 'FORWARDED', 'RECEIVED', 'PROCESSED'] } 
       };
     } else if (req.user.role === 'EMPLOYEE') {
@@ -190,7 +193,6 @@ const getDocuments = asyncHandler(async (req, res) => {
       query = {
         'receiver.organization': req.user.organization,
         'sender.user': { $ne: req.user._id },
-        isPublishedCopy: { $ne: true },
         status: { $in: ['FORWARDED', 'PROCESSED'] },
         $or: [
           { 'receiver.department': req.user.department, 'receiver.targetEmployee': null },
@@ -204,7 +206,6 @@ const getDocuments = asyncHandler(async (req, res) => {
           // Văn bản gửi đích danh đến trưởng phòng này (kể cả DRAFT_PUBLISH nội bộ)
           'receiver.organization': req.user.organization,
           'receiver.targetLeader': req.user._id,
-          isPublishedCopy: { $ne: true },
           status: { $in: ['FORWARDED', 'RECEIVED', 'REJECTED', 'PROCESSED'] },
         },
       ];
@@ -212,7 +213,6 @@ const getDocuments = asyncHandler(async (req, res) => {
         leaderConditions.push({
           'receiver.organization': req.user.organization,
           'receiver.department': req.user.department,
-          isPublishedCopy: { $ne: true },
           type: { $nin: ['LEADER_SUBMIT', 'EXPRESS'] },
           status: { $in: ['FORWARDED', 'RECEIVED', 'REJECTED', 'PROCESSED'] },
         });
