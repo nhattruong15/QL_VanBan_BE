@@ -695,6 +695,48 @@ const getOrgStats = asyncHandler(async (req, res) => {
 });
 
 
+// @desc    Get latest feedbacks for dashboard
+// @route   GET /api/documents/feedbacks/latest
+const getLatestFeedbacks = asyncHandler(async (req, res) => {
+  const orgId = req.user.organization;
+  const role = req.user.role;
+  const userId = req.user._id;
+
+  let query = {};
+  if (role !== 'SUPER_ADMIN') {
+    query = { 
+      $or: [
+        { 'sender.organization': orgId },
+        { 'receiver.organization': orgId }
+      ]
+    };
+  }
+
+  const documents = await Document.find(query)
+    .populate('feedbacks.user', 'name')
+    .sort({ updatedAt: -1 })
+    .limit(50); // Get recent documents to extract feedbacks
+
+  let allFeedbacks = [];
+  documents.forEach(doc => {
+    doc.feedbacks.forEach(fb => {
+      allFeedbacks.push({
+        _id: fb._id,
+        userName: fb.user?.name || 'Người dùng',
+        createdAt: fb.createdAt,
+        documentTitle: doc.title,
+        documentId: doc._id,
+        summary: fb.summary,
+        content: fb.content
+      });
+    });
+  });
+
+  // Sort by date and take latest 10
+  allFeedbacks.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  res.json(allFeedbacks.slice(0, 10));
+});
+
 // @desc    Add feedback to document
 // @route   POST /api/documents/:id/feedback
 const addFeedbackToDocument = asyncHandler(async (req, res) => {
@@ -747,14 +789,34 @@ const addFeedbackToDocument = asyncHandler(async (req, res) => {
       }
     }
     
-    // Create notification for sender
+    // -- Create notifications --
+    const recipients = new Set();
+    
+    // 1. Notify the sender
     if (document.sender.user.toString() !== req.user._id.toString()) {
-       await Notification.create({
-          recipient: document.sender.user,
-          document: document._id,
-          message: `Có phản hồi mới từ ${req.user.name} về văn bản: ${document.title}`,
-          type: 'STATUS_UPDATE'
-       });
+      recipients.add(document.sender.user.toString());
+    }
+
+    // 2. Notify the signer (if it's a draft publish)
+    if (document.signer && document.signer.toString() !== req.user._id.toString()) {
+      recipients.add(document.signer.toString());
+    }
+
+    // 3. Notify the current receiver (if it's a person)
+    if (document.receiver.targetLeader && document.receiver.targetLeader.toString() !== req.user._id.toString()) {
+      recipients.add(document.receiver.targetLeader.toString());
+    }
+    if (document.receiver.targetEmployee && document.receiver.targetEmployee.toString() !== req.user._id.toString()) {
+      recipients.add(document.receiver.targetEmployee.toString());
+    }
+
+    for (const recipientId of recipients) {
+      await Notification.create({
+        recipient: recipientId,
+        document: document._id,
+        message: `Có phản hồi mới từ ${req.user.name} về văn bản: ${document.title}`,
+        type: 'NEW_FEEDBACK'
+      });
     }
 
     res.status(201).json({ message: 'Phản hồi thành công', document });
@@ -772,4 +834,5 @@ export {
   getOrgStats,
   deleteDocument,
   addFeedbackToDocument,
+  getLatestFeedbacks,
 };
