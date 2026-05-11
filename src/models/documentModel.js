@@ -70,6 +70,15 @@ const documentSchema = mongoose.Schema(
         user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
         summary: String,
         content: String,
+        category: { type: String, default: 'Công văn' },
+        attachments: [
+          {
+            name: String,
+            path: String,
+            mimetype: String,
+            size: Number,
+          }
+        ],
         createdAt: { type: Date, default: Date.now },
       }
     ],

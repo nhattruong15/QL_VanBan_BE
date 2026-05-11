@@ -18,6 +18,6 @@ router.route('/stats/organization').get(protect, getOrgStats);
 router.route('/feedbacks/latest').get(protect, getLatestFeedbacks);
 router.route('/:id').get(protect, getDocumentById).delete(protect, deleteDocument);
 router.route('/:id/status').put(protect, updateDocumentStatus);
-router.route('/:id/feedback').post(protect, addFeedbackToDocument);
+router.route('/:id/feedback').post(protect, upload.array('files', 5), addFeedbackToDocument);
 
 export default router;

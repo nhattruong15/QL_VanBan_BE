@@ -740,15 +740,24 @@ const getLatestFeedbacks = asyncHandler(async (req, res) => {
 // @desc    Add feedback to document
 // @route   POST /api/documents/:id/feedback
 const addFeedbackToDocument = asyncHandler(async (req, res) => {
-  const { summary, content } = req.body;
+  const { summary, content, category } = req.body;
 
   const document = await Document.findById(req.params.id);
 
   if (document) {
+    const attachments = req.files ? req.files.map(file => ({
+      name: file.originalname,
+      path: file.path.replace(/\\/g, '/'),
+      size: file.size,
+      mimetype: file.mimetype
+    })) : [];
+
     const feedback = {
       user: req.user._id,
       summary,
       content,
+      category: category || 'Công văn',
+      attachments
     };
 
     document.feedbacks.push(feedback);
